@@ -168,6 +168,11 @@ impl App {
         self.tick = self.tick % 4 + 1;
         self.rain
             .step(self.tick, self.asynch, self.mutate, &mut self.rng);
+        if !(self.rain.scrolled() && self.screen.scroll_down()) {
+            for &x in self.rain.shifted() {
+                self.screen.shift_down(x);
+            }
+        }
         for &(x, y) in self.rain.changed() {
             let cell = self.look.cell(self.rain.slot(x, y), &mut self.rng);
             self.screen.set(x, y, cell);

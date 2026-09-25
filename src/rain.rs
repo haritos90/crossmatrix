@@ -155,6 +155,7 @@ pub struct Rain {
     columns: Vec<Column>,
     scratch: Vec<Slot>,
     changed: Vec<(u16, u16)>,
+    shifted: Vec<u16>,
 }
 
 impl Rain {
@@ -167,6 +168,7 @@ impl Rain {
             columns: Vec::new(),
             scratch: Vec::new(),
             changed: Vec::new(),
+            shifted: Vec::new(),
         };
         rain.reset(rng);
         rain
@@ -190,6 +192,7 @@ impl Rain {
         self.columns = (0..count).map(|_| Column::new(rows, rng)).collect();
         self.scratch = vec![Slot::EMPTY; rows + 1];
         self.changed.clear();
+        self.shifted.clear();
     }
 
     /// Column spacing: glyph plus equal gap.
@@ -205,18 +208,21 @@ impl Rain {
     /// One update; `tick` cycles 1 to 4.
     pub fn step(&mut self, tick: u8, asynch: bool, mutate: bool, rng: &mut Rng) {
         self.changed.clear();
+        self.shifted.clear();
         let (rows, top, pitch) = (usize::from(self.height), self.top(), self.pitch());
         for (k, col) in self.columns.iter_mut().enumerate() {
             if asynch && tick <= col.updates {
                 continue;
             }
-            self.scratch.copy_from_slice(&col.slots);
+            let x = k as u16 * pitch;
             if self.old {
                 col.step_old(rows, &self.charset, rng);
-            } else {
-                col.step_new(rows, &self.charset, mutate, rng);
+                self.shifted.push(x);
+                self.changed.push((x, 0));
+                continue;
             }
-            let x = k as u16 * pitch;
+            self.scratch.copy_from_slice(&col.slots);
+            col.step_new(rows, &self.charset, mutate, rng);
             for y in 0..rows {
                 if col.slots[y + top] != self.scratch[y + top] {
                     self.changed.push((x, y as u16));
@@ -225,9 +231,19 @@ impl Rain {
         }
     }
 
-    /// Positions changed by the last step.
+    /// Positions to restyle after `shifted` moves.
     pub fn changed(&self) -> &[(u16, u16)] {
         &self.changed
+    }
+
+    /// Old-style columns moved down one row.
+    pub fn shifted(&self) -> &[u16] {
+        &self.shifted
+    }
+
+    /// Whole screen moved down one row.
+    pub fn scrolled(&self) -> bool {
+        !self.shifted.is_empty() && self.shifted.len() == self.columns.len()
     }
 
     pub fn slot(&self, x: u16, y: u16) -> Slot {
@@ -355,6 +371,20 @@ mod tests {
                 assert_eq!(r.slot(x, y + 1).sym, s.sym);
             }
         }
+    }
+
+    #[test]
+    fn old_style_reports_shift_and_top() {
+        let (mut r, mut rng) = rain(10, 6, true);
+        r.step(1, false, false, &mut rng);
+        assert_eq!(r.shifted(), [0, 2, 4, 6, 8]);
+        assert_eq!(r.changed(), [(0, 0), (2, 0), (4, 0), (6, 0), (8, 0)]);
+        assert!(r.scrolled());
+        r.step(1, true, false, &mut rng);
+        assert!(!r.scrolled());
+        let (mut r, mut rng) = rain(10, 6, false);
+        r.step(1, false, false, &mut rng);
+        assert!(r.shifted().is_empty() && !r.scrolled());
     }
 
     #[test]

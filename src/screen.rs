@@ -198,6 +198,8 @@ pub struct Screen {
     text: Option<String>,
     banner: Option<Banner>,
     repaint: bool,
+    scrolls: u16,
+    stale_banner: bool,
     pen: Style,
     cursor: Option<(u16, u16)>,
     out: Vec<u8>,
@@ -215,6 +217,8 @@ impl Screen {
             text: None,
             banner: None,
             repaint: true,
+            scrolls: 0,
+            stale_banner: false,
             pen: Style::PLAIN,
             cursor: None,
             out: Vec::new(),
@@ -242,6 +246,8 @@ impl Screen {
             .as_deref()
             .and_then(|t| Banner::place(t, width, height));
         self.repaint = true;
+        self.scrolls = 0;
+        self.stale_banner = false;
     }
 
     /// Centered message over the rain.
@@ -282,16 +288,76 @@ impl Screen {
             return;
         }
         self.cells[i] = cell;
+        self.queue(i);
+    }
+
+    fn queue(&mut self, i: usize) {
         if !self.queued[i] {
             self.queued[i] = true;
             self.dirty.push(i as u32);
         }
     }
 
+    /// Move column `x` down one row, colors kept.
+    pub fn shift_down(&mut self, x: u16) {
+        if x >= self.width {
+            return;
+        }
+        let w = usize::from(self.width);
+        for y in (1..self.height).rev() {
+            let above = self.cells[usize::from(y - 1) * w + usize::from(x)];
+            self.set(x, y, above);
+        }
+        self.set(x, 0, Cell::BLANK);
+    }
+
+    /// Whole grid down one row via IL.
+    pub fn scroll_down(&mut self) -> bool {
+        if self.repaint || self.height < 2 {
+            return false;
+        }
+        let (w, n) = (usize::from(self.width), self.cells.len());
+        self.cells.copy_within(..n - w, w);
+        self.cells[..w].fill(Cell::BLANK);
+        let pending = std::mem::take(&mut self.dirty);
+        for &i in &pending {
+            self.queued[i as usize] = false;
+        }
+        for i in pending {
+            let below = i as usize + w;
+            if below < n {
+                self.queue(below);
+            }
+        }
+        // Banner scrolled too: redraw it and the row below.
+        if let Some((x0, x1, y1)) = self.banner.as_ref().map(|b| (b.x0, b.x1, b.y1)) {
+            if y1 < self.height {
+                let row = usize::from(y1) * w;
+                for x in x0..x1 {
+                    self.queue(row + usize::from(x));
+                }
+            }
+            self.stale_banner = true;
+        }
+        self.scrolls += 1;
+        true
+    }
+
     /// Bytes bringing the terminal up to date.
     pub fn render(&mut self) -> &[u8] {
         self.out.clear();
         self.order.clear();
+        let scrolls = std::mem::take(&mut self.scrolls);
+        let stale_banner = std::mem::take(&mut self.stale_banner);
+        if scrolls > 0 && !self.repaint {
+            self.out.extend_from_slice(b"\x1b[H");
+            if scrolls == 1 {
+                self.out.extend_from_slice(b"\x1b[L");
+            } else {
+                let _ = write!(self.out, "\x1b[{scrolls}L");
+            }
+            self.cursor = None;
+        }
         if self.repaint {
             self.repaint = false;
             self.out.extend_from_slice(b"\x1b[0m\x1b[2J");
@@ -310,6 +376,9 @@ impl Screen {
                     .push(self.cells[i as usize].key() << 32 | u64::from(i));
             }
             self.paint_order();
+            if stale_banner {
+                self.paint_banner();
+            }
         }
         for &i in &self.dirty {
             self.queued[i as usize] = false;
@@ -625,6 +694,61 @@ mod tests {
         s.set_banner(Some("longer"));
         let out = render(&mut s);
         assert_eq!(out, "\x1b[0m\x1b[2J\x1b[1;1Honge");
+    }
+
+    #[test]
+    fn shift_moves_cells_with_style() {
+        let mut s = settled(4, 3);
+        s.set(0, 0, Cell::new('a', GREEN));
+        s.set(0, 1, Cell::new('b', WHITE));
+        render(&mut s);
+        s.shift_down(0);
+        assert_eq!(s.text(), ["    ", "a   ", "b   "]);
+        assert_eq!(
+            render(&mut s),
+            "\x1b[1;1H \x1b[2;1H\x1b[32ma\x1b[3;1H\x1b[37mb"
+        );
+    }
+
+    #[test]
+    fn scroll_uses_insert_line() {
+        let mut s = settled(4, 3);
+        s.set(0, 0, Cell::new('a', GREEN));
+        s.set(2, 1, Cell::new('b', GREEN));
+        render(&mut s);
+        assert!(s.scroll_down());
+        s.set(0, 0, Cell::new('c', GREEN));
+        assert_eq!(render(&mut s), "\x1b[H\x1b[L\x1b[1;1Hc");
+        assert_eq!(s.text(), ["c   ", "a   ", "  b "]);
+    }
+
+    #[test]
+    fn scroll_keeps_pending_cells() {
+        let mut s = settled(4, 3);
+        s.set(1, 0, Cell::new('a', GREEN));
+        s.set(1, 2, Cell::new('z', GREEN));
+        assert!(s.scroll_down());
+        assert_eq!(render(&mut s), "\x1b[H\x1b[L\x1b[2;2H\x1b[32ma");
+    }
+
+    #[test]
+    fn no_scroll_before_repaint() {
+        let mut s = Screen::new(10, 5);
+        assert!(!s.scroll_down());
+    }
+
+    #[test]
+    fn scroll_redraws_banner() {
+        let mut s = settled(20, 5);
+        s.set_banner(Some("hi"));
+        s.set(8, 3, Cell::new('a', GREEN));
+        render(&mut s);
+        assert!(s.scroll_down());
+        let out = render(&mut s);
+        assert!(out.starts_with("\x1b[H\x1b[L\x1b[5;7H"), "{out:?}");
+        assert!(out.contains("\x1b[32ma"), "{out:?}");
+        assert!(out.ends_with("\x1b[3;7H   hi  \x1b[4;7H       "), "{out:?}");
+        assert_eq!(s.text()[4], "        a           ");
     }
 
     #[test]
