@@ -2,6 +2,8 @@
 
 Matrix digital rain for the terminal. Linux, macOS, Windows.
 
+Versus cmatrix 2.0: 5-30x less CPU, 2-30x less output, 25% less memory.
+
 ## Requirements
 
 - Terminal with ANSI escape support; Windows 10 or later.
