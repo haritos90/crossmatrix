@@ -5,4 +5,6 @@
 
 //! Matrix digital rain for the terminal.
 
+mod screen;
+
 fn main() {}
