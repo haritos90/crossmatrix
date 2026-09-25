@@ -6,6 +6,7 @@
 //! Matrix digital rain for the terminal.
 
 mod charset;
+mod cli;
 mod look;
 mod rain;
 mod screen;
