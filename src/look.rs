@@ -40,15 +40,12 @@ pub struct Look {
 impl Look {
     /// Rainbow and palette colors drawn per call.
     pub fn cell(&self, slot: Slot, rng: &mut Rng) -> Cell {
-        let heavy = self.bold != Bold::Off;
-        if slot.sym == Sym::Glow || (slot.head && !self.rainbow) {
+        if slot.head && !self.rainbow {
             let style = Style {
                 color: Color::White,
-                bold: heavy,
+                bold: self.bold != Bold::Off,
             };
             return match slot.sym {
-                Sym::Glow => Cell::new('&', style),
-                Sym::Bar => Cell::new('|', style),
                 Sym::Char(c) => Cell::new(c, style),
                 Sym::Empty | Sym::Blank => Cell::BLANK,
             };
@@ -69,14 +66,7 @@ impl Look {
                     },
                 )
             }
-            Sym::Bar => Cell::new(
-                '|',
-                Style {
-                    color: self.color(rng),
-                    bold: heavy,
-                },
-            ),
-            Sym::Glow | Sym::Empty | Sym::Blank => Cell::BLANK,
+            Sym::Empty | Sym::Blank => Cell::BLANK,
         }
     }
 
@@ -95,103 +85,4 @@ impl Look {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn look() -> Look {
-        Look {
-            palette: vec![Color::Green],
-            rainbow: false,
-            bold: Bold::Off,
-            lambda: false,
-        }
-    }
-
-    fn slot(sym: Sym, head: bool) -> Slot {
-        Slot { sym, head }
-    }
-
-    #[test]
-    fn head_is_white() {
-        let mut rng = Rng::with_seed(1);
-        let c = look().cell(slot(Sym::Char('x'), true), &mut rng);
-        assert_eq!(
-            (c.ch, c.style.color, c.style.bold),
-            ('x', Color::White, false)
-        );
-    }
-
-    #[test]
-    fn no_bold_means_no_bold_head() {
-        let mut rng = Rng::with_seed(1);
-        let l = Look {
-            bold: Bold::Off,
-            ..look()
-        };
-        assert!(!l.cell(slot(Sym::Char('x'), true), &mut rng).style.bold);
-        let l = Look {
-            bold: Bold::Mixed,
-            ..look()
-        };
-        assert!(l.cell(slot(Sym::Char('x'), true), &mut rng).style.bold);
-    }
-
-    #[test]
-    fn mixed_bold_by_parity() {
-        let mut rng = Rng::with_seed(1);
-        let l = Look {
-            bold: Bold::Mixed,
-            ..look()
-        };
-        assert!(l.cell(slot(Sym::Char('b'), false), &mut rng).style.bold);
-        assert!(!l.cell(slot(Sym::Char('a'), false), &mut rng).style.bold);
-    }
-
-    #[test]
-    fn lambda_spares_head() {
-        let mut rng = Rng::with_seed(1);
-        let l = Look {
-            lambda: true,
-            ..look()
-        };
-        assert_eq!(l.cell(slot(Sym::Char('x'), false), &mut rng).ch, 'λ');
-        assert_eq!(l.cell(slot(Sym::Char('x'), true), &mut rng).ch, 'x');
-    }
-
-    #[test]
-    fn rainbow_colors_heads_too() {
-        let mut rng = Rng::with_seed(1);
-        let l = Look {
-            rainbow: true,
-            ..look()
-        };
-        for _ in 0..50 {
-            let c = l.cell(slot(Sym::Char('x'), true), &mut rng);
-            assert!(RAINBOW.contains(&c.style.color));
-        }
-    }
-
-    #[test]
-    fn palette_picks_members() {
-        let mut rng = Rng::with_seed(1);
-        let l = Look {
-            palette: vec![Color::Red, Color::Rgb(1, 2, 3)],
-            ..look()
-        };
-        let colors: Vec<Color> = (0..50)
-            .map(|_| l.cell(slot(Sym::Char('x'), false), &mut rng).style.color)
-            .collect();
-        assert!(colors.contains(&Color::Red) && colors.contains(&Color::Rgb(1, 2, 3)));
-    }
-
-    #[test]
-    fn old_style_symbols() {
-        let mut rng = Rng::with_seed(1);
-        let l = look();
-        let glow = l.cell(slot(Sym::Glow, false), &mut rng);
-        assert_eq!((glow.ch, glow.style.color), ('&', Color::White));
-        assert_eq!(l.cell(slot(Sym::Bar, false), &mut rng).ch, '|');
-        assert_eq!(l.cell(slot(Sym::Blank, true), &mut rng), Cell::BLANK);
-        assert_eq!(l.cell(slot(Sym::Empty, false), &mut rng), Cell::BLANK);
-    }
-}
+mod tests;

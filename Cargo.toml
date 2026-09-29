@@ -3,14 +3,17 @@ name = "crossmatrix"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
-description = "Matrix digital rain for the terminal. Rust port of cmatrix."
+description = "Matrix digital rain for the terminal."
 license = "GPL-3.0-or-later"
 readme = "README.md"
 keywords = ["matrix", "terminal", "animation", "screensaver", "cmatrix"]
 categories = ["command-line-utilities"]
 
 [dependencies]
-crossterm = { version = "0.29", default-features = false, features = ["events", "windows"] }
+crossterm = { version = "0.29", default-features = false, features = [
+  "events",
+  "windows",
+] }
 fastrand = "2.5"
 lexopt = "0.3"
 unicode-width = { version = "0.2", default-features = false }

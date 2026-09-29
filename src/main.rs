@@ -63,6 +63,7 @@ fn run(options: Options) -> io::Result<()> {
     let mut app = App::new(options, width, height, fastrand::Rng::new());
     let mut next = Instant::now();
     let mut size_check = next + SIZE_CHECK;
+    // Main rendering loop.
     loop {
         let now = Instant::now();
         let mut wake = size_check;
